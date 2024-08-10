@@ -8,14 +8,6 @@ argv = argv[1:]
 cwd = getcwd()
 chdir(f"/Users/{getuser()}/Documents/CodeSnippets")
 
-#check system used files and folder exists
-def check():
-    if not isdir(folder):
-        mkdir(folder)
-        open(file,"x").close()
-    elif not isfile(file):
-        open(file,"x").close()
-
 #defining and setting variables
 folder = f"/Users/{getuser()}/Documents/CodeSnippets"
 file = f"{folder}/cmd.code"
@@ -23,6 +15,13 @@ cmd = argv[0]
 KEEP = ["add","delete","conf",","]
 CMDLIST:list[str] = []
 CMDRAW:list[str] = []
+#check system used files and folder exists
+def check():
+    if not isdir(folder):
+        mkdir(folder)
+        open(file,"x").close()
+    elif not isfile(file):
+        open(file,"x").close()
 check()
 with open(file) as read:
     CMDRAW = read.readlines()

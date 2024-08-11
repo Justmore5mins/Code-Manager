@@ -1,112 +1,104 @@
-from sys import argv
-from os.path import isfile,isdir
-from os import mkdir,chdir,getcwd,system,access,X_OK,remove
-from shutil import copy
+import sys
+import os
+from shutil import move
 from getpass import getuser
-argv = argv[1:]
+from threading import Thread
 
-cwd = getcwd()
-chdir(f"/Users/{getuser()}/Documents/CodeSnippets")
+def main():
+    argv = sys.argv[1:]
+    user_dir = f"/Users/{getuser()}/Documents/CodeSnippets"
+    cmd_file = f"{user_dir}/cmd.code"
+    cmd = argv[0]
 
-#defining and setting variables
-folder = f"/Users/{getuser()}/Documents/CodeSnippets"
-file = f"{folder}/cmd.code"
-cmd = argv[0]
-KEEP = ["add","delete","conf",","]
-CMDLIST:list[str] = []
-CMDRAW:list[str] = []
-#check system used files and folder exists
-def check():
-    if not isdir(folder):
-        mkdir(folder)
-        open(file,"x").close()
-    elif not isfile(file):
-        open(file,"x").close()
-check()
-with open(file) as read:
-    CMDRAW = read.readlines()
-for i in range(0,len(CMDRAW)):
-    CMDLIST.append(CMDRAW[i].split(",")[0])
+    def ensure_cmd_file():
+        if not os.path.exists(user_dir):
+            os.makedirs(user_dir)
+        if not os.path.exists(cmd_file):
+            open(cmd_file, 'w').close()
 
-#reset the folder path
-def reset(cwd:str) -> None:
-    chdir(cwd)
-#adding new command
-if cmd == "add":
-    name = argv[1:][0]
-    path = argv[1:][1]
-    filename = path.split("/")[-1].lower()
-    if name in KEEP or name in CMDLIST:
-        raise ValueError(f"The command can't be these {KEEP} and {CMDLIST}")
-    prefix = argv[3] if len(argv) == 4 else None
-    copy(path,f"{folder}/{filename}")
-    if access(f"{folder}/{filename}",X_OK):
-        system(f"chmod +x {folder}/{filename}")
-    else:
-        prefix = argv[3]
-    if name.lower() in CMDLIST and name.lower() in KEEP:
-        raise ValueError("The command exists or reserved words")
-    else:
-        pass
-    with open(file,"a") as write:
-        write.write(f"{name.lower()},{filename},{prefix}\n")
-    
-#delete exists command
-elif cmd == "delete":
-    target = argv[1].lower()
-    if target not in CMDLIST:
-        raise ValueError("The command not exists")
-    else:
-        remove(f"{folder}/{CMDRAW[CMDLIST.index(target)].split(",")[1]}")
-        CMDRAW.remove(CMDRAW[CMDLIST.index(target)])
-        with open(file,"w") as write:
-            write.writelines(CMDRAW)
+    ensure_cmd_file()
 
-#configure command (only name changing supported)
-elif cmd == "conf":
-    old, new = argv[1:]
-    if old not in CMDLIST and new not in KEEP and new not in CMDLIST:
-        pass
-    else:
-        raise ValueError("The command is not avaliable or used")
+    commands = []
+    with open(cmd_file, 'r') as f:
+        for line in f:
+            name, path, prefix = line.strip().split(',')
+            commands.append((name, path, prefix))
 
-    cache:list[str] = []
-    for cmdraw in CMDRAW:
-        cache.append(cmdraw.replace(old,new,1))
-    with open(file,"w") as write:
-        write.writelines(cache)
+    def add_command(name, path, prefix=None):
+        if name in [c[0] for c in commands] or name in ['add', 'delete', 'conf', ',']:
+            raise ValueError(f"Command '{name}' is already used or reserved.")
+        filename = path.split('/')[-1].lower()
+        move(path, f"{user_dir}/{filename}")
+        os.chmod(f"{user_dir}/{filename}", 0o755) if not prefix else None
+        with open(cmd_file, 'a') as f:
+            f.write(f"{name},{filename},{prefix or ''}\n")
 
-#use noremal commands
-elif cmd in CMDLIST:
-    chdir(folder)
-    cmd = cmd.lower()
-    execute:str = ""
-    items:list[set[str,str,str]] = []
-    for a in CMDRAW:
-        items.append((a.split(",")[0],a.split(",")[1],a.split(",")[2]))
-    for i in items:
-        if cmd in i:
-            name,path,prefix = i
-            prefix = prefix[:-1]
-            if prefix != "None":
-                execute += f"{prefix} {path} "
-            else:
-                execute += f"./{path}"
-            for a in argv[2:]:
-                execute += a+" "
+    def delete_command(name):
+        for i, (cmd_name, path, _) in enumerate(commands):
+            if cmd_name == name:
+                os.remove(f"{user_dir}/{path}")
+                del commands[i]
+                break
         else:
-            pass
-    system(execute)
-    chdir(cwd)
+            raise ValueError(f"Command '{name}' not found.")
+        with open(cmd_file, 'w') as f:
+            for name, path, prefix in commands:
+                f.write(f"{name},{path},{prefix}\n")
 
-elif cmd == "help":
-    print("Inputs must in lower case")
-    print("This is a command manager\n and here's the command list")
-    print("add [command name] [original file path (1)] {prefix}")
-    print("delete [commands]")
-    print("config [old name] [new name]")
-    print("(other command) name {args} (2)")
-    print("(1) if the origin file is executable, you don't need to enter the prefix command")
-    print("(2) the args is not required,depends on the original file accepts args")
-else:
-    raise ValueError("Command not supported")
+    def configure_command(old_name, new_name):
+        if new_name in [c[0] for c in commands] or new_name in ['add', 'delete', 'conf', ',']:
+            raise ValueError(f"New command name '{new_name}' is already used or reserved.")
+        for i, (cmd_name, path, prefix) in enumerate(commands):
+            if cmd_name == old_name:
+                commands[i] = (new_name, path, prefix)
+                break
+        else:
+            raise ValueError(f"Command '{old_name}' not found.")
+        with open(cmd_file, 'w') as f:
+            for name, path, prefix in commands:
+                f.write(f"{name},{path},{prefix}\n")
+
+    def update_command(name, path):
+        for i, (cmd_name, _, prefix) in enumerate(commands):
+            if cmd_name == name:
+                filename = path.split('/')[-1].lower()
+                os.remove(f"{user_dir}/{commands[i][1]}")
+                move(path, f"{user_dir}/{filename}")
+                os.chmod(f"{user_dir}/{filename}", 0o755) if not prefix else None
+                commands[i] = (name, filename, prefix)
+                break
+        else:
+            raise ValueError(f"Command '{name}' not found.")
+        with open(cmd_file, 'w') as f:
+            for name, path, prefix in commands:
+                f.write(f"{name},{path},{prefix}\n")
+
+    def execute_command(name, args):
+        for cmd_name, path, prefix in commands:
+            if cmd_name == name:
+                cmd = f"{prefix} {path} {' '.join(args)}" if prefix else f"./{path} {' '.join(args)}"
+                os.system(cmd)
+                break
+        else:
+            raise ValueError(f"Command '{name}' not found.")
+
+    if cmd == 'add':
+        name, path, prefix = argv[1], argv[2], argv[3] if len(argv) > 3 else None
+        add_command(name, path, prefix)
+    elif cmd == 'delete':
+        delete_command(argv[1])
+    elif cmd == 'conf':
+        configure_command(argv[1], argv[2])
+    elif cmd == 'update':
+        update_command(argv[1], argv[2])
+    elif cmd in [c[0] for c in commands]:
+        execute_command(cmd, argv[1:])
+    elif cmd == 'help':
+        print('...')  # Add help message
+    else:
+        raise ValueError(f"Unknown command: {cmd}")
+    
+if __name__ == "__main__":
+    s = Thread(target=main)
+    s.start()
+    s.join()
